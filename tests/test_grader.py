@@ -184,18 +184,18 @@ def eval_tier4_matrix_stress(SlabAllocator) -> tuple[float, int]:
 
     passed = 0
     for x in range(10):
-        for y in range(10):
+        for y in range(16):
             for z in range(10):
                 if TestMatrixGenerator.run_case(SlabAllocator, x, y, z):
                     passed += 1
-    score = (passed / 1000.0) * 0.200
+    score = (passed / 1600.0) * 0.200
     return score, passed
 
 
 def run_grader(engine_dir: str) -> dict:
     is_clean, msg = scan_anti_cheat(engine_dir)
     if not is_clean:
-        return {"tier1_canary": 0.0, "tier2_multiclass": 0.0, "tier3_compaction": 0.0, "tier4_matrix": 0.0, "matrix_passed": 0, "matrix_total": 1000, "score": 0.0, "error": msg}
+        return {"tier1_canary": 0.0, "tier2_multiclass": 0.0, "tier3_compaction": 0.0, "tier4_matrix": 0.0, "matrix_passed": 0, "matrix_total": 1600, "score": 0.0, "error": msg}
 
     for mod_name in list(sys.modules.keys()):
         if mod_name == "engine" or mod_name.startswith("engine."):
@@ -213,7 +213,7 @@ def run_grader(engine_dir: str) -> dict:
         MemoryCorruptionError = getattr(canary_mod, "MemoryCorruptionError")
         DoubleFreeError = getattr(canary_mod, "DoubleFreeError")
     except Exception as e:
-        return {"tier1_canary": 0.0, "tier2_multiclass": 0.0, "tier3_compaction": 0.0, "tier4_matrix": 0.0, "matrix_passed": 0, "matrix_total": 1000, "score": 0.0, "error": str(e)}
+        return {"tier1_canary": 0.0, "tier2_multiclass": 0.0, "tier3_compaction": 0.0, "tier4_matrix": 0.0, "matrix_passed": 0, "matrix_total": 1600, "score": 0.0, "error": str(e)}
 
     print("=== EXECUTING 4-TIER SLAB ALLOCATOR GRADER PIPELINE ===")
     t1 = eval_tier1_canary_and_safety_traps(SlabAllocator, MemoryCorruptionError, DoubleFreeError)
@@ -226,7 +226,7 @@ def run_grader(engine_dir: str) -> dict:
     print(f"  [TIER 3] Fragmentation Compaction      : {t3:.3f} / 0.300")
 
     t4, m_passed = eval_tier4_matrix_stress(SlabAllocator)
-    print(f"  [TIER 4] 1,000-State Matrix Stress     : {t4:.3f} / 0.200 ({m_passed}/1000 passed)")
+    print(f"  [TIER 4] 1,600-State Matrix Stress     : {t4:.3f} / 0.200 ({m_passed}/1600 passed)")
 
     total_score = t1 + t2 + t3 + t4
     return {
@@ -235,7 +235,7 @@ def run_grader(engine_dir: str) -> dict:
         "tier3_compaction": round(t3, 3),
         "tier4_matrix": round(t4, 3),
         "matrix_passed": m_passed,
-        "matrix_total": 1000,
+        "matrix_total": 1600,
         "score": round(total_score, 4)
     }
 

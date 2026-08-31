@@ -2,7 +2,7 @@ version = "1.0"
 
 [task]
 name = "benchmark/zero-copy-slab-allocator-matrix"
-description = "Implement and calibrate a high-performance, cache-line aligned zero-copy memory slab allocator and fragmentation compactor across a 1,000-state combinatorial permutation matrix."
+description = "Implement and calibrate a high-performance, cache-line aligned zero-copy memory slab allocator and fragmentation compactor across a 1,600-state combinatorial permutation matrix."
 difficulty = "hard"
 category = "systems-programming"
 timeout_sec = 2700
@@ -10,8 +10,8 @@ allow_internet = false
 tags = ["systems-programming", "memory-management", "slab-allocator", "zero-copy", "cache-alignment", "compaction", "long-horizon"]
 
 [task.difficulty_explanation]
-provenance = "Synthetic 1,000-state combinatorial matrix inspired by standard architectural design patterns in operating systems kernel slab allocators (Bonwick 1994)."
-differentiation_notes = "This task combines several elements not typically found together in standard memory allocator exercises: (1) multi-class power-of-two slab arenas (32B to 4096B) returning 64-byte cache-aligned integer pointers; (2) explicit memory safety guards including 4-byte canary headers/footers (0xDEADBEEF), use-after-free poisoning with pattern 0xAA, buffer overflow traps on write, and double-free detection via engine.canary exceptions; (3) strict boundary enforcement rejecting allocations exceeding 4096 bytes with ValueError; (4) an active zero-copy fragmentation compactor with telemetry via get_stats(); and (5) a 1,000-case combinatorial test matrix verifying allocator efficiency across 10 distinct memory access and churn topologies."
+provenance = "Synthetic 1,600-state combinatorial matrix inspired by standard architectural design patterns in operating systems kernel slab allocators (Bonwick 1994)."
+differentiation_notes = "This task combines several elements not typically found together in standard memory allocator exercises: (1) multi-class power-of-two slab arenas (32B to 4096B) returning 64-byte cache-aligned integer pointers; (2) explicit memory safety guards including 4-byte canary headers/footers (0xDEADBEEF), use-after-free poisoning with pattern 0xAA, buffer overflow traps on write, and double-free detection via engine.canary exceptions; (3) strict boundary enforcement rejecting allocations exceeding 4096 bytes with ValueError; (4) an active zero-copy fragmentation compactor with telemetry via get_stats(); and (5) a 1,600-case combinatorial test matrix verifying allocator efficiency across 16 distinct memory access and churn topologies."
 relevance = "Evaluates low-level systems programming, memory layout modeling, fragmentation mitigation, and invariant-enforcing resource allocators."
 failure_cruxes = [
     "Unchecked allocation requests exceeding 4096 bytes failing to raise ValueError.",

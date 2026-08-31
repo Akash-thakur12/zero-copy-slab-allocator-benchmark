@@ -1,7 +1,7 @@
 # Zero-Copy Memory Slab Allocator & Compactor Benchmark
 
 ## Objective
-Implement a high-performance, memory-safe **Zero-Copy Slab Allocator & Fragmentation Compactor** supporting multi-class power-of-two sizing, 64-byte hardware cache-line alignment, canary corruption detection (`0xDEADBEEF`), and active memory defragmentation across a **1,000-state combinatorial permutation matrix**.
+Implement a high-performance, memory-safe **Zero-Copy Slab Allocator & Fragmentation Compactor** supporting multi-class power-of-two sizing, 64-byte hardware cache-line alignment, canary corruption detection (`0xDEADBEEF`), and active memory defragmentation across a **1,600-state combinatorial permutation matrix**.
 
 ---
 
@@ -66,7 +66,7 @@ The evaluation pipeline (`tests/test_outputs.py`) executes a 4-tier evaluation s
 | **Tier 1** | **Canary Guards & Alignment** | `0.200` | Validates 64B alignment, canary protection, ValueError on >4096, and DoubleFreeError. |
 | **Tier 2** | **Multi-Class Sizing & Telemetry** | `0.300` | Validates allocation routing across 32B to 4096B classes and get_stats() telemetry. |
 | **Tier 3** | **Fragmentation Compaction** | `0.300` | Validates page coalescing, defragmentation, and OS page release under churn. |
-| **Tier 4** | **1,000-State Combinatorial Matrix** | `0.200` | Stress tests 1,000 randomized permutations across 10 distinct memory access topologies. |
+| **Tier 4** | **1,600-State Combinatorial Matrix** | `0.200` | Stress tests 1,600 randomized permutations across 16 distinct memory access topologies. |
 
 * **Total Score:** $\sum 	ext{Tiers} = \mathbf{1.000}$
 * **Passing Threshold:** $	ext{Score} \ge \mathbf{0.500}$
