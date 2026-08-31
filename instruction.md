@@ -11,7 +11,7 @@ Implement a high-performance, memory-safe **Zero-Copy Slab Allocator & Fragmenta
 The allocator must maintain dedicated slab arenas for discrete object sizes:
 * **Size Classes:** `[32, 64, 128, 256, 512, 1024, 2048, 4096]` bytes.
 * Requests for $S$ bytes must be routed to the smallest size class $C \ge S$.
-* Objects larger than 4096 bytes must be rejected or allocated via contiguous page backing.
+* Objects larger than 4096 bytes must raise `ValueError`.
 
 ### 2. Cache-Line Alignment & Canary Safety Framing
 Every allocated chunk must be enveloped with safety guards and aligned to a 64-byte cache boundary:
@@ -20,28 +20,39 @@ Every allocated chunk must be enveloped with safety guards and aligned to a 64-b
 * **Payload Buffer ($N$ Bytes):** Zero-copy aligned data storage.
 * **Canary Footer (4 Bytes `uint32`):** `0xDEADBEEF`
 
-### 3. Memory Safety Invariants
-1. **Double-Free Detection:** Freeing an already freed memory pointer must raise an explicit exception or return an error flag.
-2. **Buffer Overflow Detection:** If an out-of-bounds write overwrites either canary, `free()` or `validate()` must trap the corruption immediately.
-3. **Use-After-Free Poisoning:** Upon deallocation, the payload buffer must be poisoned with pattern `0xAA` to catch stale readers.
+### 3. Memory Safety Invariants & Exceptions (`engine.canary`)
+The `engine.canary` module must define and export:
+1. `MemoryCorruptionError(Exception)`: Raised when a buffer overflow or corrupted canary header/footer is detected during read, write, or free.
+2. `DoubleFreeError(Exception)`: Raised when deallocating an already freed or unallocated block pointer.
+3. `POISON_BYTE = 0xAA`: Upon deallocation (`free`), the entire slot buffer must be poisoned with `0xAA` bytes to immediately trap stale readers.
 
-### 4. Zero-Copy Fragmentation Compactor
-* Partially occupied slabs must be coalesced when total cluster utilization drops below 50%.
-* Empty slabs must be released back to the OS memory pool.
+### 4. Zero-Copy Fragmentation Compactor & Telemetry
+* Partially occupied slabs must be coalesced and empty slabs released back to the pool.
+* `get_stats()` must return an exact dictionary with keys:
+  * `total_allocated_bytes`: Total active payload bytes.
+  * `active_blocks`: Total currently allocated blocks.
+  * `slab_count`: Total active slab pages retained in memory.
+  * `fragmentation_ratio`: Float ratio of idle slots to total slots.
 
 ---
 
 ## Public API Contract
 
-The candidate implementation must expose the following coordinator classes under `engine.allocator`:
+The candidate implementation must expose the following coordinator classes:
 
-### `SlabAllocator(slab_page_size: int = 65536)`
-* `allocate(size: int) -> int`: Allocates a memory block and returns an opaque block ID / pointer.
+### `engine.allocator.SlabAllocator(slab_page_size: int = 65536)`
+* `allocate(size: int) -> int`: Allocates a memory block and returns an opaque block ID.
 * `write(block_id: int, data: bytes)`: Writes raw bytes into the allocated block with boundary enforcement.
 * `read(block_id: int, size: int = None) -> bytes`: Zero-copy reads bytes from the block.
-* `free(block_id: int) -> bool`: Validates canaries, poisons memory, and returns the block to the free-list.
+* `free(block_id: int) -> bool`: Validates canaries, poisons memory with `0xAA`, and returns the block to the free-list.
 * `compact() -> int`: Defragments sparse slabs and returns the number of freed slab pages.
 * `get_stats() -> dict`: Returns `{total_allocated_bytes, active_blocks, slab_count, fragmentation_ratio}`.
+
+### `engine.canary`
+* `MemoryCorruptionError`
+* `DoubleFreeError`
+* `POISON_BYTE = 0xAA`
+* `validate_block_canaries(raw_block: bytearray, requested_size: int) -> bool`
 
 ---
 
@@ -51,8 +62,8 @@ The evaluation pipeline (`tests/test_outputs.py`) executes a 4-tier evaluation s
 
 | Tier | Component | Weight | Criteria |
 |:---|:---|:---:|:---|
-| **Tier 1** | **Slab Arena & Canary Guards** | `0.200` | Validates 64B alignment, canary magic checks, and double-free detection. |
-| **Tier 2** | **Multi-Class Power-of-Two Sizing** | `0.300` | Validates allocation routing across 32B to 4096B classes without internal leaks. |
+| **Tier 1** | **Canary Guards & Safety Traps** | `0.200` | Validates 64B alignment, canary corruption traps, 0xAA poisoning, and DoubleFreeError. |
+| **Tier 2** | **Multi-Class Sizing & Telemetry** | `0.300` | Validates allocation routing across 32B to 4096B classes and get_stats() schema accuracy. |
 | **Tier 3** | **Fragmentation Compaction** | `0.300` | Validates page coalescing, defragmentation, and OS page release under churn. |
 | **Tier 4** | **1,000-State Combinatorial Matrix** | `0.200` | Stress tests 1,000 randomized permutations of allocations, frees, and corruptions. |
 

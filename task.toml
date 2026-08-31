@@ -11,12 +11,13 @@ tags = ["systems-programming", "memory-management", "slab-allocator", "zero-copy
 
 [task.difficulty_explanation]
 provenance = "Synthetic 1,000-state combinatorial matrix inspired by standard architectural design patterns in operating systems kernel slab allocators (Bonwick 1994)."
-differentiation_notes = "This task combines: (1) multi-class power-of-two slab arenas (32B to 4096B) with 64-byte hardware cache-line alignment; (2) explicit memory safety guards including 4-byte canary headers/footers (0xDEADBEEF) and use-after-free/double-free detection; (3) an active zero-copy fragmentation compactor and page coalescer; (4) an AST anti-cheat layer blocking external memory and database libraries; and (5) a 1,000-case combinatorial test matrix verifying allocator efficiency, memory leak avoidance, and compaction ratio under high churn."
+differentiation_notes = "This task combines several elements not typically found together in standard memory allocator exercises: (1) multi-class power-of-two slab arenas (32B to 4096B) with 64-byte hardware cache-line alignment; (2) explicit memory safety guards including 4-byte canary headers/footers (0xDEADBEEF), use-after-free poisoning with pattern 0xAA, and double-free exception detection via custom engine.canary exceptions; (3) an active zero-copy fragmentation compactor and page coalescer supporting live runtime telemetry via get_stats(); (4) an AST anti-cheat layer blocking external memory and database libraries; and (5) a 1,000-case combinatorial test matrix verifying allocator efficiency, memory leak avoidance, and compaction ratio under high churn across 10 distinct allocation topologies."
 relevance = "Evaluates low-level systems programming, memory layout modeling, fragmentation mitigation, and invariant-enforcing resource allocators."
 failure_cruxes = [
     "Silent heap corruption from unaligned memory boundary arithmetic across power-of-two size classes.",
     "Canary word corruption during multi-threaded or churned deallocations causing use-after-free escapes.",
-    "Sparse slab compaction deadlocks when objects are migrated between partially filled arenas."
+    "Sparse slab compaction deadlocks when objects are migrated between partially filled arenas.",
+    "Inaccurate telemetry in get_stats() when computing active fragmentation ratios across released pages."
 ]
 
 [scoring]

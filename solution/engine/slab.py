@@ -25,7 +25,6 @@ class SlabArena:
         footer = pack_canary_footer()
 
         self.buffer[offset : offset + 8] = header
-        # Clear payload
         self.buffer[offset + 8 : offset + 8 + size] = b"\x00" * size
         self.buffer[offset + 8 + size : offset + 8 + size + 4] = footer
         return slot_idx
@@ -58,7 +57,7 @@ class SlabArena:
         if not validate_block_canaries(self.buffer[offset : offset + self.slot_size], size):
             raise MemoryCorruptionError(f"Canary corruption detected on slot {slot_idx}")
 
-        # Poison payload
+        # Poison slot buffer with 0xAA
         self.buffer[offset : offset + self.slot_size] = bytes([POISON_BYTE]) * self.slot_size
         self.allocated_slots.remove(slot_idx)
         self.free_slots.append(slot_idx)

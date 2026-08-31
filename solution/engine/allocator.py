@@ -9,7 +9,7 @@ class SlabAllocator:
     def __init__(self, slab_page_size: int = 65536):
         self.slab_page_size = slab_page_size
         self.arenas: dict[int, list[SlabArena]] = {sc: [] for sc in SIZE_CLASSES}
-        self.block_registry: dict[int, tuple[SlabArena, int]] = {}  # block_id -> (arena_obj, slot_idx)
+        self.block_registry: dict[int, tuple[SlabArena, int, int]] = {}  # block_id -> (arena, slot_idx, size)
         self.next_block_id = 1
 
     def _get_size_class(self, size: int) -> int:
@@ -39,25 +39,25 @@ class SlabAllocator:
 
         bid = self.next_block_id
         self.next_block_id += 1
-        self.block_registry[bid] = (target_arena, target_slot_idx)
+        self.block_registry[bid] = (target_arena, target_slot_idx, size)
         return bid
 
     def write(self, block_id: int, data: bytes):
         if block_id not in self.block_registry:
             raise MemoryCorruptionError(f"Invalid block_id {block_id}")
-        arena, slot_idx = self.block_registry[block_id]
+        arena, slot_idx, _ = self.block_registry[block_id]
         arena.write(slot_idx, data)
 
     def read(self, block_id: int, size: int = None) -> bytes:
         if block_id not in self.block_registry:
             raise MemoryCorruptionError(f"Invalid block_id {block_id}")
-        arena, slot_idx = self.block_registry[block_id]
+        arena, slot_idx, _ = self.block_registry[block_id]
         return arena.read(slot_idx, size)
 
     def free(self, block_id: int) -> bool:
         if block_id not in self.block_registry:
             raise DoubleFreeError(f"Attempt to free invalid/freed block_id {block_id}")
-        arena, slot_idx = self.block_registry[block_id]
+        arena, slot_idx, _ = self.block_registry[block_id]
         res = arena.free(slot_idx)
         del self.block_registry[block_id]
         return res
@@ -76,9 +76,15 @@ class SlabAllocator:
 
     def get_stats(self) -> dict:
         total_arenas = sum(len(a) for a in self.arenas.values())
+        total_payload_bytes = sum(sz for _, _, sz in self.block_registry.values())
+        total_capacity_slots = sum(len(a.free_slots) + len(a.allocated_slots) for arena_list in self.arenas.values() for a in arena_list)
+        active_count = len(self.block_registry)
+        idle_slots = total_capacity_slots - active_count
+        frag_ratio = float(idle_slots / total_capacity_slots) if total_capacity_slots > 0 else 0.0
+
         return {
-            "total_allocated_bytes": len(self.block_registry) * 64,
-            "active_blocks": len(self.block_registry),
+            "total_allocated_bytes": total_payload_bytes,
+            "active_blocks": active_count,
             "slab_count": total_arenas,
-            "fragmentation_ratio": 0.0 if total_arenas == 0 else (total_arenas - len(self.block_registry)) / total_arenas
+            "fragmentation_ratio": round(frag_ratio, 4)
         }

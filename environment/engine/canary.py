@@ -1,5 +1,8 @@
 """Memory Safety Guards & Canary Validation."""
 
+CANARY_MAGIC = 0xDEADBEEF
+POISON_BYTE = 0xAA
+
 class MemoryCorruptionError(Exception):
     pass
 

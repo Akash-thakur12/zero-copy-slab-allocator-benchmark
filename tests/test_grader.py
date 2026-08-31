@@ -34,18 +34,40 @@ def eval_tier1_canary_guards(SlabAllocator, MemoryCorruptionError, DoubleFreeErr
         alloc.write(b1, b"hello_canary")
         if alloc.read(b1, 12) != b"hello_canary":
             return 0.0
-        alloc.free(b1)
-        # Verify double free exception
+
+        # Test canary corruption trap on corrupted buffer
+        arena, slot_idx, _ = alloc.block_registry[b1]
+        offset = slot_idx * arena.slot_size
+        arena.buffer[offset] = 0x00  # Corrupt canary magic header
         try:
             alloc.free(b1)
-            return 0.0  # Should have raised DoubleFreeError
+            return 0.0  # Must raise MemoryCorruptionError
+        except (MemoryCorruptionError, Exception):
+            pass
+
+        # Reset and test clean free & double free
+        alloc2 = SlabAllocator()
+        b2 = alloc2.allocate(64)
+        alloc2.free(b2)
+
+        # Test 0xAA memory poisoning on freed block
+        arena2, slot_idx2 = list(alloc2.arenas[64][0].free_slots)[0], 0
+        freed_bytes = bytes(alloc2.arenas[64][0].buffer[:32])
+        if not all(b == 0xAA for b in freed_bytes[:16]):
+            return 0.0
+
+        # Test double-free exception
+        try:
+            alloc2.free(b2)
+            return 0.0  # Must raise DoubleFreeError
         except (DoubleFreeError, Exception):
             pass
+
         return 0.200
     except Exception:
         return 0.0
 
-def eval_tier2_multiclass_sizing(SlabAllocator) -> float:
+def eval_tier2_multiclass_sizing_and_stats(SlabAllocator) -> float:
     try:
         alloc = SlabAllocator()
         blocks = []
@@ -57,6 +79,16 @@ def eval_tier2_multiclass_sizing(SlabAllocator) -> float:
         for bid, sz in blocks:
             if alloc.read(bid, sz) != b"X" * sz:
                 return 0.0
+
+        # Test get_stats() schema and values
+        stats = alloc.get_stats()
+        required_keys = {"total_allocated_bytes", "active_blocks", "slab_count", "fragmentation_ratio"}
+        if not required_keys.issubset(stats.keys()):
+            return 0.0
+        if stats["active_blocks"] != 8 or stats["total_allocated_bytes"] != sum([32, 64, 128, 256, 512, 1024, 2048, 4096]):
+            return 0.0
+
+        for bid, _ in blocks:
             alloc.free(bid)
         return 0.300
     except Exception:
@@ -71,7 +103,9 @@ def eval_tier3_compaction(SlabAllocator) -> float:
         alloc.free(b2)
         freed_pages = alloc.compact()
         if freed_pages >= 1:
-            return 0.300
+            stats = alloc.get_stats()
+            if stats["slab_count"] == 0 and stats["active_blocks"] == 0:
+                return 0.300
         return 0.0
     except Exception:
         return 0.0
@@ -118,8 +152,8 @@ def run_grader(engine_dir: str) -> dict:
     t1 = eval_tier1_canary_guards(SlabAllocator, MemoryCorruptionError, DoubleFreeError)
     print(f"  [TIER 1] Slab Arena & Canary Guards     : {t1:.3f} / 0.200")
 
-    t2 = eval_tier2_multiclass_sizing(SlabAllocator)
-    print(f"  [TIER 2] Multi-Class Power-of-Two Sizing: {t2:.3f} / 0.300")
+    t2 = eval_tier2_multiclass_sizing_and_stats(SlabAllocator)
+    print(f"  [TIER 2] Multi-Class Sizing & Telemetry : {t2:.3f} / 0.300")
 
     t3 = eval_tier3_compaction(SlabAllocator)
     print(f"  [TIER 3] Fragmentation Compaction       : {t3:.3f} / 0.300")
