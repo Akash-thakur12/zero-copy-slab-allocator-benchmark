@@ -25,8 +25,12 @@ def emit_reward_file(score: float):
     except Exception as e:
         print(f"Warning writing to primary verifier dir: {e}")
 
-    # Fallback paths
+    # Fallback paths (including relative verifier/ paths)
     fallbacks = [
+        os.path.join(os.getcwd(), "verifier", "reward.txt"),
+        os.path.join(os.getcwd(), "verifier", "reward.json"),
+        str(SCRIPT_DIR.parent / "verifier" / "reward.txt"),
+        str(SCRIPT_DIR.parent / "verifier" / "reward.json"),
         "/app/reward.txt",
         "/app/reward.json",
         os.path.join(os.getcwd(), "reward.txt"),
