@@ -1,7 +1,3 @@
-.git
-solution
-tests
-*.zip
 __pycache__
 *.pyc
 .pytest_cache

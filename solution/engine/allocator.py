@@ -9,10 +9,12 @@ class SlabAllocator:
     def __init__(self, slab_page_size: int = 65536):
         self.slab_page_size = slab_page_size
         self.arenas: dict[int, list[SlabArena]] = {sc: [] for sc in SIZE_CLASSES}
-        self.block_registry: dict[int, tuple[SlabArena, int, int]] = {}  # block_id -> (arena, slot_idx, size)
-        self.next_block_id = 1
+        self.block_registry: dict[int, tuple[SlabArena, int, int]] = {}  # ptr -> (arena, slot_idx, size)
+        self.next_arena_id = 1
 
     def _get_size_class(self, size: int) -> int:
+        if size <= 0:
+            raise ValueError("Allocation size must be strictly positive")
         for sc in SIZE_CLASSES:
             if sc >= size:
                 return sc
@@ -33,30 +35,32 @@ class SlabAllocator:
                 break
 
         if target_slot_idx is None:
-            target_arena = SlabArena(class_size=sc, slab_page_size=self.slab_page_size)
+            target_arena = SlabArena(class_size=sc, arena_id=self.next_arena_id, slab_page_size=self.slab_page_size)
+            self.next_arena_id += 1
             target_slot_idx = target_arena.allocate(size)
             arena_list.append(target_arena)
 
-        bid = self.next_block_id
-        self.next_block_id += 1
-        self.block_registry[bid] = (target_arena, target_slot_idx, size)
-        return bid
+        # Compute 64-byte aligned pointer handle: (arena_id * 65536) + (slot_idx * slot_size)
+        # Both base offset and slot_size are multiples of 64 -> ptr % 64 == 0
+        ptr = (target_arena.arena_id * self.slab_page_size) + (target_slot_idx * target_arena.slot_size)
+        self.block_registry[ptr] = (target_arena, target_slot_idx, size)
+        return ptr
 
     def write(self, block_id: int, data: bytes):
         if block_id not in self.block_registry:
-            raise MemoryCorruptionError(f"Invalid block_id {block_id}")
+            raise MemoryCorruptionError(f"Invalid pointer {block_id}")
         arena, slot_idx, _ = self.block_registry[block_id]
         arena.write(slot_idx, data)
 
     def read(self, block_id: int, size: int = None) -> bytes:
         if block_id not in self.block_registry:
-            raise MemoryCorruptionError(f"Invalid block_id {block_id}")
+            raise MemoryCorruptionError(f"Invalid pointer {block_id}")
         arena, slot_idx, _ = self.block_registry[block_id]
         return arena.read(slot_idx, size)
 
     def free(self, block_id: int) -> bool:
         if block_id not in self.block_registry:
-            raise DoubleFreeError(f"Attempt to free invalid/freed block_id {block_id}")
+            raise DoubleFreeError(f"Attempt to free invalid/freed pointer {block_id}")
         arena, slot_idx, _ = self.block_registry[block_id]
         res = arena.free(slot_idx)
         del self.block_registry[block_id]

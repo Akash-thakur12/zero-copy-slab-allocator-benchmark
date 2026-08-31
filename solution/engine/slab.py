@@ -6,8 +6,9 @@ from engine.canary import (
 
 
 class SlabArena:
-    def __init__(self, class_size: int, slab_page_size: int = 65536):
+    def __init__(self, class_size: int, arena_id: int = 1, slab_page_size: int = 65536):
         self.class_size = class_size
+        self.arena_id = arena_id
         self.slot_size = ((8 + class_size + 4 + 63) // 64) * 64  # 64B cache line aligned
         self.capacity = slab_page_size // self.slot_size
         self.buffer = bytearray(self.capacity * self.slot_size)

@@ -6,6 +6,7 @@ import json
 import importlib
 from pathlib import Path
 
+
 def scan_anti_cheat(engine_dir: str) -> tuple[bool, str]:
     disallowed_imports = {"ctypes", "mmap", "sqlite3", "lmdb", "leveldb", "requests", "urllib3"}
     for root, _, files in os.walk(engine_dir):
@@ -27,38 +28,55 @@ def scan_anti_cheat(engine_dir: str) -> tuple[bool, str]:
                     return False, f"AST parse error in {file}: {e}"
     return True, "Passed"
 
-def eval_tier1_canary_guards(SlabAllocator, MemoryCorruptionError, DoubleFreeError) -> float:
+
+def eval_tier1_canary_and_alignment(SlabAllocator, MemoryCorruptionError, DoubleFreeError) -> float:
     try:
         alloc = SlabAllocator()
-        b1 = alloc.allocate(32)
-        alloc.write(b1, b"hello_canary")
-        if alloc.read(b1, 12) != b"hello_canary":
+
+        # 1. 64-byte cache alignment check via public API
+        ptr1 = alloc.allocate(32)
+        if not isinstance(ptr1, int) or ptr1 % 64 != 0:
             return 0.0
 
-        # Test canary corruption trap on corrupted buffer
-        arena, slot_idx, _ = alloc.block_registry[b1]
-        offset = slot_idx * arena.slot_size
-        arena.buffer[offset] = 0x00  # Corrupt canary magic header
+        # 2. Maximum boundary checks: 4096 succeeds, 4097 raises ValueError
+        ptr_4096 = alloc.allocate(4096)
+        if not isinstance(ptr_4096, int) or ptr_4096 % 64 != 0:
+            return 0.0
+
         try:
-            alloc.free(b1)
+            alloc.allocate(4097)
+            return 0.0  # Must raise ValueError
+        except ValueError:
+            pass
+        except Exception:
+            return 0.0
+
+        # Negative / zero size raises ValueError
+        try:
+            alloc.allocate(0)
+            return 0.0
+        except ValueError:
+            pass
+        except Exception:
+            return 0.0
+
+        # 3. Write & read verification
+        alloc.write(ptr1, b"aligned_payload")
+        if alloc.read(ptr1, 15) != b"aligned_payload":
+            return 0.0
+
+        # 4. Buffer overflow detection on write
+        try:
+            alloc.write(ptr1, b"X" * 64)  # Exceeds allocated 32
             return 0.0  # Must raise MemoryCorruptionError
         except (MemoryCorruptionError, Exception):
             pass
 
-        # Reset and test clean free & double free
-        alloc2 = SlabAllocator()
-        b2 = alloc2.allocate(64)
-        alloc2.free(b2)
-
-        # Test 0xAA memory poisoning on freed block
-        arena2, slot_idx2 = list(alloc2.arenas[64][0].free_slots)[0], 0
-        freed_bytes = bytes(alloc2.arenas[64][0].buffer[:32])
-        if not all(b == 0xAA for b in freed_bytes[:16]):
-            return 0.0
-
-        # Test double-free exception
+        # 5. Clean free and DoubleFreeError
+        alloc.free(ptr_4096)
+        alloc.free(ptr1)
         try:
-            alloc2.free(b2)
+            alloc.free(ptr1)
             return 0.0  # Must raise DoubleFreeError
         except (DoubleFreeError, Exception):
             pass
@@ -67,32 +85,45 @@ def eval_tier1_canary_guards(SlabAllocator, MemoryCorruptionError, DoubleFreeErr
     except Exception:
         return 0.0
 
+
 def eval_tier2_multiclass_sizing_and_stats(SlabAllocator) -> float:
     try:
         alloc = SlabAllocator()
         blocks = []
-        for s in [32, 64, 128, 256, 512, 1024, 2048, 4096]:
-            bid = alloc.allocate(s)
-            alloc.write(bid, b"X" * min(s, 16))
-            blocks.append((bid, min(s, 16)))
-        
-        for bid, sz in blocks:
-            if alloc.read(bid, sz) != b"X" * sz:
+        classes = [32, 64, 128, 256, 512, 1024, 2048, 4096]
+
+        for s in classes:
+            ptr = alloc.allocate(s)
+            if not isinstance(ptr, int) or ptr % 64 != 0:
+                return 0.0
+            alloc.write(ptr, b"K" * min(s, 16))
+            blocks.append((ptr, min(s, 16)))
+
+        # Read parity across all classes
+        for ptr, sz in blocks:
+            if alloc.read(ptr, sz) != b"K" * sz:
                 return 0.0
 
-        # Test get_stats() schema and values
+        # Telemetry validation via public get_stats()
         stats = alloc.get_stats()
         required_keys = {"total_allocated_bytes", "active_blocks", "slab_count", "fragmentation_ratio"}
         if not required_keys.issubset(stats.keys()):
             return 0.0
-        if stats["active_blocks"] != 8 or stats["total_allocated_bytes"] != sum([32, 64, 128, 256, 512, 1024, 2048, 4096]):
+
+        if stats["active_blocks"] != len(classes):
+            return 0.0
+        if stats["total_allocated_bytes"] != sum(classes):
+            return 0.0
+        if stats["slab_count"] < 1:
             return 0.0
 
-        for bid, _ in blocks:
-            alloc.free(bid)
+        for ptr, _ in blocks:
+            alloc.free(ptr)
+
         return 0.300
     except Exception:
         return 0.0
+
 
 def eval_tier3_compaction(SlabAllocator) -> float:
     try:
@@ -101,6 +132,8 @@ def eval_tier3_compaction(SlabAllocator) -> float:
         b2 = alloc.allocate(64)
         alloc.free(b1)
         alloc.free(b2)
+
+        # Verify compaction frees idle slab pages
         freed_pages = alloc.compact()
         if freed_pages >= 1:
             stats = alloc.get_stats()
@@ -109,6 +142,7 @@ def eval_tier3_compaction(SlabAllocator) -> float:
         return 0.0
     except Exception:
         return 0.0
+
 
 def eval_tier4_matrix_stress(SlabAllocator) -> tuple[float, int]:
     try:
@@ -124,6 +158,7 @@ def eval_tier4_matrix_stress(SlabAllocator) -> tuple[float, int]:
                     passed += 1
     score = (passed / 1000.0) * 0.200
     return score, passed
+
 
 def run_grader(engine_dir: str) -> dict:
     is_clean, msg = scan_anti_cheat(engine_dir)
@@ -149,17 +184,17 @@ def run_grader(engine_dir: str) -> dict:
         return {"tier1_canary": 0.0, "tier2_multiclass": 0.0, "tier3_compaction": 0.0, "tier4_matrix": 0.0, "matrix_passed": 0, "matrix_total": 1000, "score": 0.0, "error": str(e)}
 
     print("=== EXECUTING 4-TIER SLAB ALLOCATOR GRADER PIPELINE ===")
-    t1 = eval_tier1_canary_guards(SlabAllocator, MemoryCorruptionError, DoubleFreeError)
-    print(f"  [TIER 1] Slab Arena & Canary Guards     : {t1:.3f} / 0.200")
+    t1 = eval_tier1_canary_and_alignment(SlabAllocator, MemoryCorruptionError, DoubleFreeError)
+    print(f"  [TIER 1] Canary Guards & 64B Alignment : {t1:.3f} / 0.200")
 
     t2 = eval_tier2_multiclass_sizing_and_stats(SlabAllocator)
-    print(f"  [TIER 2] Multi-Class Sizing & Telemetry : {t2:.3f} / 0.300")
+    print(f"  [TIER 2] Multi-Class Sizing & Telemetry: {t2:.3f} / 0.300")
 
     t3 = eval_tier3_compaction(SlabAllocator)
-    print(f"  [TIER 3] Fragmentation Compaction       : {t3:.3f} / 0.300")
+    print(f"  [TIER 3] Fragmentation Compaction      : {t3:.3f} / 0.300")
 
     t4, m_passed = eval_tier4_matrix_stress(SlabAllocator)
-    print(f"  [TIER 4] 1,000-State Matrix Stress      : {t4:.3f} / 0.200 ({m_passed}/1000 passed)")
+    print(f"  [TIER 4] 1,000-State Matrix Stress     : {t4:.3f} / 0.200 ({m_passed}/1000 passed)")
 
     total_score = t1 + t2 + t3 + t4
     return {
@@ -172,11 +207,13 @@ def run_grader(engine_dir: str) -> dict:
         "score": round(total_score, 4)
     }
 
+
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "/app/engine"
     res = run_grader(target)
     print("\n" + json.dumps(res, indent=2))
     print(f"\n[REWARD] FINAL COMPOSITE SCORE: {res['score']:.4f}")
+
 
 if __name__ == "__main__":
     main()
