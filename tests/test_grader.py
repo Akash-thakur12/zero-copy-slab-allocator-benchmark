@@ -172,6 +172,11 @@ def eval_tier3_compaction(SlabAllocator) -> float:
 
 
 def eval_tier4_matrix_stress(SlabAllocator) -> tuple[float, int]:
+    tests_dir = Path(__file__).resolve().parent
+    if str(tests_dir.parent) not in sys.path:
+        sys.path.insert(0, str(tests_dir.parent))
+    if str(tests_dir) not in sys.path:
+        sys.path.insert(0, str(tests_dir))
     try:
         from tests.generate_matrix import TestMatrixGenerator
     except ImportError:
