@@ -8,11 +8,21 @@ from pathlib import Path
 
 
 def scan_anti_cheat(engine_dir: str) -> tuple[bool, str]:
-    disallowed_imports = {"ctypes", "mmap", "sqlite3", "lmdb", "leveldb", "requests", "urllib3"}
+    disallowed_imports = {"ctypes", "_ctypes", "mmap", "sqlite3", "lmdb", "leveldb", "requests", "urllib3", "socket", "http"}
+    disallowed_calls = {"eval", "exec", "__import__", "compile"}
+    
+    # Symlink guard
+    if os.path.islink(engine_dir):
+        return False, "Symlinked engine directory is prohibited"
+
     for root, _, files in os.walk(engine_dir):
+        if os.path.islink(root):
+            return False, f"Symlinked directory detected: {root}"
         for file in files:
             if file.endswith(".py"):
                 fpath = os.path.join(root, file)
+                if os.path.islink(fpath):
+                    return False, f"Symlinked source file detected: {fpath}"
                 try:
                     with open(fpath, "r", encoding="utf-8") as f:
                         tree = ast.parse(f.read(), filename=file)
@@ -20,10 +30,13 @@ def scan_anti_cheat(engine_dir: str) -> tuple[bool, str]:
                         if isinstance(node, ast.Import):
                             for alias in node.names:
                                 if alias.name.split(".")[0] in disallowed_imports:
-                                    return False, f"Prohibited library: {alias.name}"
+                                    return False, f"Prohibited library import: {alias.name}"
                         elif isinstance(node, ast.ImportFrom):
                             if node.module and node.module.split(".")[0] in disallowed_imports:
-                                return False, f"Prohibited module: {node.module}"
+                                return False, f"Prohibited module import: {node.module}"
+                        elif isinstance(node, ast.Call):
+                            if isinstance(node.func, ast.Name) and node.func.id in disallowed_calls:
+                                return False, f"Prohibited built-in call: {node.func.id}"
                 except Exception as e:
                     return False, f"AST parse error in {file}: {e}"
     return True, "Passed"
