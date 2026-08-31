@@ -18,9 +18,9 @@ def emit_reward_file(score: float):
     primary_dir = "/logs/verifier"
     try:
         os.makedirs(primary_dir, exist_ok=True)
-        with open(os.path.join(primary_dir, "reward.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(primary_dir, "reward.txt"), "w", newline="\n", encoding="utf-8") as f:
             f.write(reward_text)
-        with open(os.path.join(primary_dir, "reward.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(primary_dir, "reward.json"), "w", newline="\n", encoding="utf-8") as f:
             f.write(reward_json)
     except Exception as e:
         print(f"Warning writing to primary verifier dir: {e}")
@@ -44,7 +44,7 @@ def emit_reward_file(score: float):
             parent = os.path.dirname(p)
             if parent:
                 os.makedirs(parent, exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
+            with open(p, "w", newline="\n", encoding="utf-8") as f:
                 if p.endswith(".json"):
                     f.write(reward_json)
                 else:
