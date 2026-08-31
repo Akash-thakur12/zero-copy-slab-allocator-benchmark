@@ -14,11 +14,19 @@ def emit_reward_file(score: float):
     reward_text = f"{score:.4f}\n"
     reward_json = f'{{"score": {score:.4f}}}\n'
 
-    candidate_paths = [
-        "/logs/verifier/reward.txt",
-        "/logs/verifier/reward.json",
-        "/verifier/reward.txt",
-        "/verifier/reward.json",
+    # Primary Harbor standard path
+    primary_dir = "/logs/verifier"
+    try:
+        os.makedirs(primary_dir, exist_ok=True)
+        with open(os.path.join(primary_dir, "reward.txt"), "w", encoding="utf-8") as f:
+            f.write(reward_text)
+        with open(os.path.join(primary_dir, "reward.json"), "w", encoding="utf-8") as f:
+            f.write(reward_json)
+    except Exception as e:
+        print(f"Warning writing to primary verifier dir: {e}")
+
+    # Fallback paths
+    fallbacks = [
         "/app/reward.txt",
         "/app/reward.json",
         os.path.join(os.getcwd(), "reward.txt"),
@@ -27,7 +35,7 @@ def emit_reward_file(score: float):
         str(SCRIPT_DIR.parent / "reward.json")
     ]
 
-    for p in candidate_paths:
+    for p in fallbacks:
         try:
             parent = os.path.dirname(p)
             if parent:

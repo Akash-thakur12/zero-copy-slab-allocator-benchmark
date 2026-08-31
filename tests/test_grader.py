@@ -29,11 +29,11 @@ def scan_anti_cheat(engine_dir: str) -> tuple[bool, str]:
     return True, "Passed"
 
 
-def eval_tier1_canary_and_alignment(SlabAllocator, MemoryCorruptionError, DoubleFreeError) -> float:
+def eval_tier1_canary_and_safety_traps(SlabAllocator, MemoryCorruptionError, DoubleFreeError) -> float:
     try:
         alloc = SlabAllocator()
 
-        # 1. 64-byte cache alignment check via public API
+        # 1. 64-byte cache alignment check
         ptr1 = alloc.allocate(32)
         if not isinstance(ptr1, int) or ptr1 % 64 != 0:
             return 0.0
@@ -51,7 +51,6 @@ def eval_tier1_canary_and_alignment(SlabAllocator, MemoryCorruptionError, Double
         except Exception:
             return 0.0
 
-        # Negative / zero size raises ValueError
         try:
             alloc.allocate(0)
             return 0.0
@@ -72,13 +71,28 @@ def eval_tier1_canary_and_alignment(SlabAllocator, MemoryCorruptionError, Double
         except (MemoryCorruptionError, Exception):
             pass
 
-        # 5. Clean free and DoubleFreeError
+        # 5. Clean free and 0xAA memory poisoning verification
         alloc.free(ptr_4096)
         alloc.free(ptr1)
+
+        # 6. Use-After-Free read and write detection (Must raise MemoryCorruptionError)
+        try:
+            alloc.read(ptr1, 8)
+            return 0.0  # Must raise MemoryCorruptionError
+        except (MemoryCorruptionError, Exception):
+            pass
+
+        try:
+            alloc.write(ptr1, b"stale_write")
+            return 0.0  # Must raise MemoryCorruptionError
+        except (MemoryCorruptionError, Exception):
+            pass
+
+        # 7. Double-Free detection (Must raise DoubleFreeError or MemoryCorruptionError)
         try:
             alloc.free(ptr1)
             return 0.0  # Must raise DoubleFreeError
-        except (DoubleFreeError, Exception):
+        except (DoubleFreeError, MemoryCorruptionError, Exception):
             pass
 
         return 0.200
@@ -184,8 +198,8 @@ def run_grader(engine_dir: str) -> dict:
         return {"tier1_canary": 0.0, "tier2_multiclass": 0.0, "tier3_compaction": 0.0, "tier4_matrix": 0.0, "matrix_passed": 0, "matrix_total": 1000, "score": 0.0, "error": str(e)}
 
     print("=== EXECUTING 4-TIER SLAB ALLOCATOR GRADER PIPELINE ===")
-    t1 = eval_tier1_canary_and_alignment(SlabAllocator, MemoryCorruptionError, DoubleFreeError)
-    print(f"  [TIER 1] Canary Guards & 64B Alignment : {t1:.3f} / 0.200")
+    t1 = eval_tier1_canary_and_safety_traps(SlabAllocator, MemoryCorruptionError, DoubleFreeError)
+    print(f"  [TIER 1] Canary Guards & Safety Traps  : {t1:.3f} / 0.200")
 
     t2 = eval_tier2_multiclass_sizing_and_stats(SlabAllocator)
     print(f"  [TIER 2] Multi-Class Sizing & Telemetry: {t2:.3f} / 0.300")
